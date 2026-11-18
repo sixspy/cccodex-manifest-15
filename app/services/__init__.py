@@ -2,6 +2,7 @@ from app.services.batches import list_batches, get_batch
 from app.services.objects import list_objects, register_object
 from app.services.close import close_batch
 from app.services.visibility import list_reports, run_visibility
+from app.services.refeed import refeed_object, list_refeed_runs, REFEED_MODE
 
 __all__ = [
     "list_batches",
@@ -11,4 +12,7 @@ __all__ = [
     "close_batch",
     "list_reports",
     "run_visibility",
+    "refeed_object",
+    "list_refeed_runs",
+    "REFEED_MODE",
 ]

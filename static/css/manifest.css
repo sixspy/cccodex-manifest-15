@@ -90,4 +90,12 @@ th { color: var(--muted); font-weight: 500; }
   font-size: 0.75rem;
 }
 .muted { color: var(--muted); }
+.small { font-size: 0.75rem; }
 .panel { margin-top: 1rem; padding-top: 0.5rem; border-top: 1px dashed var(--line); }
+.refeed-card { border: 1px solid var(--accent); padding: 0.8rem; border-radius: 2px; }
+.mode-pill { border-color: var(--accent); color: var(--accent); }
+.done-pill { border-color: #7ce0a8; color: #7ce0a8; }
+.copy-pill { border-color: #8fc7ff; color: #8fc7ff; white-space: nowrap; }
+.fail-pill { border-color: var(--danger); color: var(--danger); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+select { width: 100%; }

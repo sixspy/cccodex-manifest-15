@@ -8,9 +8,10 @@ from app.config import Config
 def connect(db_path: str | None = None) -> sqlite3.Connection:
     path = db_path or Config.database()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -46,9 +47,14 @@ CREATE TABLE IF NOT EXISTS landing_objects (
   content_hash TEXT NOT NULL,
   byte_size INTEGER NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('已登记','已闭合','已作废')),
+  -- 回灌副本溯源：非空表示该对象是从旧批复制来的补采副本
+  source_object_id INTEGER,
+  source_batch_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(batch_id, object_key),
-  FOREIGN KEY(batch_id) REFERENCES landing_batches(id)
+  FOREIGN KEY(batch_id) REFERENCES landing_batches(id),
+  FOREIGN KEY(source_object_id) REFERENCES landing_objects(id),
+  FOREIGN KEY(source_batch_id) REFERENCES landing_batches(id)
 );
 
 CREATE TABLE IF NOT EXISTS close_runs (
@@ -73,6 +79,31 @@ CREATE TABLE IF NOT EXISTS visibility_reports (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 清单回灌留痕：只走「复制保留」路径，旧闭合只读、新批收副本
+CREATE TABLE IF NOT EXISTS refeed_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_batch_id INTEGER NOT NULL,
+  target_batch_id INTEGER NOT NULL,
+  source_object_id INTEGER NOT NULL,
+  new_object_id INTEGER,
+  mode TEXT NOT NULL CHECK (mode IN ('复制保留')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('已复制','失败')),
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(source_batch_id) REFERENCES landing_batches(id),
+  FOREIGN KEY(target_batch_id) REFERENCES landing_batches(id),
+  FOREIGN KEY(source_object_id) REFERENCES landing_objects(id)
+);
+
+-- 回灌排他锁：同一源对象全局只许回灌一次，两侧检修并发抢锁时一成一败
+CREATE TABLE IF NOT EXISTS refeed_locks (
+  source_object_id INTEGER PRIMARY KEY,
+  refeed_run_id INTEGER NOT NULL,
+  locked_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(source_object_id) REFERENCES landing_objects(id),
+  FOREIGN KEY(refeed_run_id) REFERENCES refeed_runs(id)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -87,9 +118,19 @@ SEED_BATCHES = [
 ]
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """旧库补列：回灌溯源字段（新库建表已自带）。"""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_objects)")}
+    if "source_object_id" not in cols:
+        conn.execute("ALTER TABLE landing_objects ADD COLUMN source_object_id INTEGER")
+    if "source_batch_id" not in cols:
+        conn.execute("ALTER TABLE landing_objects ADD COLUMN source_batch_id INTEGER")
+
+
 def init_db(db_path: str | None = None) -> None:
     with get_db(db_path) as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         row = conn.execute("SELECT value FROM meta WHERE key='seeded'").fetchone()
         if row:
             return

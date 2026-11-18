@@ -11,7 +11,10 @@ class ServiceError(Exception):
 def list_objects(batch_id: int, db_path: str | None = None) -> list[dict]:
     with get_db(db_path) as conn:
         rows = conn.execute(
-            "SELECT * FROM landing_objects WHERE batch_id=? ORDER BY id",
+            "SELECT o.*, sb.zone_name AS source_batch_name "
+            "FROM landing_objects o "
+            "LEFT JOIN landing_batches sb ON sb.id=o.source_batch_id "
+            "WHERE o.batch_id=? ORDER BY o.id",
             (batch_id,),
         ).fetchall()
         return [dict(r) for r in rows]

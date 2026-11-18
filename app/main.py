@@ -14,7 +14,9 @@ from app.services import (
     get_batch,
     list_batches,
     list_objects,
+    list_refeed_runs,
     list_reports,
+    refeed_object,
     register_object,
     run_visibility,
 )
@@ -177,6 +179,42 @@ async def api_reports(request: Request) -> dict:
     return {"items": list_reports()}
 
 
+@get("/api/refeed-runs")
+async def api_refeed_runs(request: Request) -> dict:
+    require_user(request)
+    return {"items": list_refeed_runs()}
+
+
+@post("/api/refeed")
+async def api_refeed(request: Request) -> Response:
+    """回灌引擎入口：一次事务做完复制保留，出错回白话。"""
+    require_user(request)
+    body = await request.json()
+    try:
+        source_batch_id = int(body.get("source_batch_id"))
+        target_batch_id = int(body.get("target_batch_id"))
+        object_id = int(body.get("object_id"))
+    except (TypeError, ValueError):
+        return Response(
+            content={"ok": False, "error": "源批次、目标批次、源对象编号必须为整数"},
+            status_code=400,
+            media_type="application/json",
+        )
+    try:
+        result = refeed_object(source_batch_id, target_batch_id, object_id)
+    except ServiceError as exc:
+        return Response(
+            content={"ok": False, "error": exc.message},
+            status_code=exc.status_code,
+            media_type="application/json",
+        )
+    return Response(
+        content={"ok": True, **result},
+        status_code=200,
+        media_type="application/json",
+    )
+
+
 @post("/api/visibility-reports")
 async def api_run_report(request: Request) -> dict:
     require_user(request)
@@ -201,6 +239,8 @@ app = Litestar(
         api_batch_detail,
         api_register,
         api_close,
+        api_refeed_runs,
+        api_refeed,
         api_reports,
         api_run_report,
         create_static_files_router(path="/static", directories=[str(STATIC)]),
